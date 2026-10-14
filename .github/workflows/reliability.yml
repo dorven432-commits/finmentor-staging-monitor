@@ -1,0 +1,86 @@
+name: staging-reliability
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run the normal monitor or the isolated email acceptance cycle
+        required: true
+        default: monitor
+        type: choice
+        options:
+          - monitor
+          - acceptance_cycle
+      confirmation:
+        description: Type SEND TEST ALERTS only for acceptance_cycle
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finmentor-staging-reliability
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+
+  monitor:
+    needs: tests
+    if: >-
+      ${{ vars.MONITOR_ENABLED == 'true' &&
+          (github.event_name == 'schedule' || inputs.mode == 'monitor') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run independent staging checks
+        env:
+          PYTHONPATH: src
+          MONITOR_GITHUB_TOKEN: ${{ github.token }}
+          STATE_ISSUE_NUMBER: ${{ vars.STATE_ISSUE_NUMBER }}
+          BACKUP_STATUS_ISSUE_NUMBER: ${{ vars.BACKUP_STATUS_ISSUE_NUMBER }}
+          STAGING_FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python -m finmonitor.runner
+
+  acceptance:
+    needs: tests
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'acceptance_cycle' &&
+          inputs.confirmation == 'SEND TEST ALERTS' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run isolated state and email acceptance cycle
+        env:
+          PYTHONPATH: src
+          ACCEPTANCE_CONFIRMATION: ${{ inputs.confirmation }}
+          MONITOR_GITHUB_TOKEN: ${{ github.token }}
+          ACCEPTANCE_STATE_ISSUE_NUMBER: ${{ vars.ACCEPTANCE_STATE_ISSUE_NUMBER }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python -m finmonitor.acceptance

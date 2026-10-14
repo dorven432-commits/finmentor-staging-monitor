@@ -1,0 +1,9 @@
+{
+  "incidents": {},
+  "last_backup_check_at": null,
+  "last_scheduler_run_at": null,
+  "outbox": {},
+  "revision": 0,
+  "synthetic_failures": {},
+  "version": 1
+}
